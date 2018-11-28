@@ -1,0 +1,83 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion:          2010-09-09
+Description:                       Set up role and lambda to automatically add a subscription filter to all new log groups that are created within the account.
+
+Parameters:
+  InfrastructureS3Bucket:
+    Description:                   Name (not ARN) of the S3 Infrastructure bucket containing the lambda code in a zip file (e.g., infrastructure-bucket).
+    MaxLength:                     250
+    MinLength:                     1
+    Type:                          String
+  LambdaFolderAndFile:
+    Description:                   S3 folder location and the file name of the lambda code in a zip file (e.g., lambdas/AddSubscriptionFilter.zip).
+    MaxLength:                     250
+    MinLength:                     1
+    Type:                          String
+
+Resources:
+  # IAM Roles and Policies
+  AddSubscriptionFilterRole:
+    Type:                          AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+            Effect:                Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:                'sts:AssumeRole'
+      Path:                        /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName:                AddSubcriptionPolicy
+        PolicyDocument:
+          Statement:
+          - Effect:                Allow
+            Action:
+              - logs:*
+              - ssm:GetParameter
+            Resource:             '*'
+          - Action:
+            - s3:GetObject
+            - s3:GetObjectVersion
+            - s3:GetBucketLocation
+            - s3:ListBucket
+            - s3:PutObject
+            - s3:PutObjectAcl
+            - s3:GetBucketVersioning
+            Effect:                Allow
+            Resource:
+            - arn:aws:s3:::<S3 infrastructure-bucket>
+            - arn:aws:s3:::<S3 infrastructure-bucket>/*
+  # Lambda
+  AddSubscriptionLambda:
+    Type:                         AWS::Lambda::Function
+    Properties:
+      Handler:                    lambda.lambda_handler
+      Runtime:                    python3.6
+      Code:
+        S3Bucket: !Ref            InfrastructureS3Bucket
+        S3Key: !Ref               LambdaFolderAndFile
+      Role: !GetAtt               'AddSubscriptionFilterRole.Arn'
+  AddSubscriptionLambdaPermission:    # Grants the event rule permission to invoke the lambda
+    Type:                         AWS::Lambda::Permission
+    Properties:
+      Action:                     lambda:InvokeFunction
+      FunctionName: !GetAtt       'AddSubscriptionLambda.Arn'
+      Principal:                  events.amazonaws.com
+      SourceArn: !GetAtt          'CreateLogGroupEvent.Arn'
+  # CloudWatch event rule
+  CreateLogGroupEvent:
+    Type:                         AWS::Events::Rule
+    Properties:
+      Description:                Event rule for identifying new CloudWatch Logs log groups and calling Lambda to add new subscription filters
+      EventPattern:               '{"source":["aws.logs"],"detail-type":["AWS API Call via CloudTrail"],"detail":{"eventSource":["logs.amazonaws.com"],"eventName":["CreateLogGroup"]}}'
+      Name:                       CreateLogGroupEvent
+      State:                      ENABLED
+      Targets:
+        -
+          Arn:                    !GetAtt 'AddSubscriptionLambda.Arn'
+          Id:                     add_new_subscription

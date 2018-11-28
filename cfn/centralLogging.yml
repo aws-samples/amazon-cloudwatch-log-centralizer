@@ -1,0 +1,150 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion:          2010-09-09
+Description:                       Set up roles, logs destination, kinesis and delivery stream for centralizing logs to S3 in centralized logging account
+
+Parameters:
+  LoggingS3Bucket:
+    Description:                   ARN of the S3 Logging bucket to write to.
+    MaxLength:                     250
+    MinLength:                     1
+    Type:                          String
+
+Resources:
+  # IAM Roles
+  CWLtoKinesisRole:
+    Type:                          'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version:                   2012-10-17
+        Statement:
+          - Sid:                   ''
+            Effect:                Allow
+            Principal:
+              Service:
+                - logs.us-west-2.amazonaws.com
+                - logs.us-west-1.amazonaws.com
+                - logs.us-east-2.amazonaws.com
+                - logs.us-east-1.amazonaws.com
+                - logs.ap-south-1.amazonaws.com
+                - logs.ap-northeast-2.amazonaws.com
+                - logs.ap-southeast-1.amazonaws.com
+                - logs.ap-southeast-2.amazonaws.com
+                - logs.ap-northeast-1.amazonaws.com
+                - logs.ca-central-1.amazonaws.com
+                - logs.eu-central-1.amazonaws.com
+                - logs.eu-west-1.amazonaws.com
+                - logs.eu-west-2.amazonaws.com
+                - logs.eu-west-3.amazonaws.com
+                - logs.sa-east-1.amazonaws.com
+            Action:                'sts:AssumeRole'
+      Path:                        '/'
+  CWLtoKinesisPolicy:
+    Type:                          'AWS::IAM::Policy'
+    Properties:
+      PolicyName:                  CWL_to_Kinesis_Policy
+      PolicyDocument:
+        Version:                   2012-10-17
+        Statement:
+          - Effect:                Allow
+            Action:
+              - 'kinesis:PutRecord'
+            Resource:
+              - !GetAtt            'KinesisLoggingStream.Arn'
+          - Effect:                Allow
+            Action:
+              - 'iam:PassRole'
+            Resource:
+              - !GetAtt           'CWLtoKinesisRole.Arn'
+      Roles:
+        - !Ref                    CWLtoKinesisRole
+  FirehoseDeliveryRole:
+    Type:                          'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version:                   2012-10-17
+        Statement:
+          - Sid:                   ''
+            Effect:                Allow
+            Principal:
+              Service:             firehose.amazonaws.com
+            Action:                'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId':  !Ref 'AWS::AccountId'
+  FirehoseDeliveryPolicy:
+    Type:                          'AWS::IAM::Policy'
+    Properties:
+      PolicyName:                  Firehose_Delivery_Policy
+      PolicyDocument:
+        Version:                   2012-10-17
+        Statement:
+          - Effect:                Allow
+            Action:
+              - 's3:AbortMultipartUpload'
+              - 's3:GetBucketLocation'
+              - 's3:GetObject'
+              - 's3:ListBucket'
+              - 's3:ListBucketMultipartUploads'
+              - 's3:PutObject'
+            Resource:
+              - !Ref LoggingS3Bucket
+              - !Join
+                - ''
+                - - !Ref LoggingS3Bucket
+                  - '*'
+          - Effect:               Allow
+            Action:
+              - 'kinesis:DescribeStream'
+              - 'kinesis:GetShardIterator'
+              - 'kinesis:GetRecords'
+            Resource:             !GetAtt 'KinesisLoggingStream.Arn'
+      Roles:
+        - !Ref FirehoseDeliveryRole
+  # Log Destination
+  LogDestination:
+    Type:                         AWS::Logs::Destination
+    DependsOn:
+      - KinesisLoggingStream
+      - CWLtoKinesisRole
+      - CWLtoKinesisPolicy
+    Properties:
+      DestinationName:            CentralLogDestination
+      RoleArn:                    !GetAtt 'CWLtoKinesisRole.Arn'
+      TargetArn:                  !GetAtt 'KinesisLoggingStream.Arn'
+      DestinationPolicy: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"<AccountNumberHere>\",\"<AccountNumberHere>\",\"<AccountNumberHere>\",\"<AccountNumberHere>\",\"<AccountNumberHere>\"]},\"Action\":\"logs:PutSubscriptionFilter\",\"Resource\":\"arn:aws:logs:<region>:<logging account number>:destination:CentralLogDestination\"}]}"
+  # Kinesis
+  KinesisLoggingStream:
+    Type:                         AWS::Kinesis::Stream
+    Properties:
+      Name:                       'Kinesis-Centralized-Logging-Stream'
+      RetentionPeriodHours:       48
+      ShardCount:                 2
+  # Firehose
+  FirehoseLoggingDeliveryStream:
+    Type:                                 'AWS::KinesisFirehose::DeliveryStream'
+    DependsOn:
+      - KinesisLoggingStream
+      - FirehoseDeliveryRole
+      - FirehoseDeliveryPolicy
+    Properties:
+      DeliveryStreamName:                 'Centralized-Logging-Delivery-Stream'
+      DeliveryStreamType:                  KinesisStreamAsSource
+      KinesisStreamSourceConfiguration:
+        KinesisStreamARN:                 !GetAtt 'KinesisLoggingStream.Arn'
+        RoleARN:                          !GetAtt 'FirehoseDeliveryRole.Arn'
+      ExtendedS3DestinationConfiguration:
+        BucketARN:                        !Ref LoggingS3Bucket
+        BufferingHints:
+          IntervalInSeconds:              '300'
+          SizeInMBs:                      '50'
+        CompressionFormat:                UNCOMPRESSED
+        Prefix:                           'CentralizedAccountLogs/'
+        RoleARN:                          !GetAtt 'FirehoseDeliveryRole.Arn'
+Outputs:
+  DestinationArnExport:
+    Description:                   ARN for the LogDestination
+    Export:
+      Name:                        LogDestinationArn
+    Value:                         !GetAtt 'LogDestination.Arn'
