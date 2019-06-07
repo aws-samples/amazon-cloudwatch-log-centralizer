@@ -15,12 +15,25 @@ class CentralLogging:
         # Retrieve all of the existing log groups
         log_group_response = self.log_client.describe_log_groups()
 
-        # If there are log groups, iterate over each one, retrieve its name, and call code to add the subscription to it
-        if log_group_response:
+        # Loop over multiple calls to describe_log_groups() as necessary using the next token
+        while True:
+            # If there are log groups, iterate over each one, retrieve its name, and call code to add the subscription to it
+            if log_group_response:
 
-            for log_group in log_group_response['logGroups']:
-                log_group_name = log_group['logGroupName']
-                self.add_subscription_filter(log_group_name)
+                for log_group in log_group_response['logGroups']:
+                    log_group_name = log_group['logGroupName']
+                    self.add_subscription_filter(log_group_name)
+
+                if 'nextToken' in log_group_response:
+                    log_groups_next_token = log_group_response['nextToken']
+
+                    if log_groups_next_token:
+                        log_group_response = self.log_client.describe_log_groups(nextToken=log_groups_next_token)
+                    else:
+                        break
+
+                else:
+                    break
 
     # Add subscription to centralized logging to the log group with log_group_name
     def add_subscription_filter(self, log_group_name):
@@ -51,7 +64,7 @@ class CentralLogging:
         subscription_filters = self.log_client.describe_subscription_filters(
             logGroupName=log_group_name)
 
-        # Iterate over results if there are any (again, should not be multiple, but to follow the convetion of the SDK)
+        # Iterate over results if there are any (again, should not be multiple, but to follow the convention of the SDK)
         for subscription_filter in subscription_filters['subscriptionFilters']:
             # Retrieve the subscription filter name to use in the call to delete
             filter_name = subscription_filter['filterName']

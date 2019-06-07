@@ -36,7 +36,7 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--destination", help="logs:destination ARN to send logs to")
 
     args = parser.parse_args()
-    if(args.destination):
+    if args.destination:
         add_log(args.destination)
     else:
         parser.print_help()

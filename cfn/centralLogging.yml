@@ -13,7 +13,7 @@ Parameters:
 
 Resources:
   # IAM Roles
-  CWLtoKinesisRole:
+  CWLtoFirehoseRole:
     Type:                          'AWS::IAM::Role'
     Properties:
       AssumeRolePolicyDocument:
@@ -23,24 +23,26 @@ Resources:
             Effect:                Allow
             Principal:
               Service:
-                - logs.us-west-2.amazonaws.com
-                - logs.us-west-1.amazonaws.com
-                - logs.us-east-2.amazonaws.com
-                - logs.us-east-1.amazonaws.com
+                - logs.eu-north-1.amazonaws.com
                 - logs.ap-south-1.amazonaws.com
+                - logs.eu-west-3.amazonaws.com
+                - logs.eu-west-2.amazonaws.com
+                - logs.eu-west-1.amazonaws.com
+                - logs.ap-northeast-3.amazonaws.com
                 - logs.ap-northeast-2.amazonaws.com
+                - logs.ap-northeast-1.amazonaws.com
+                - logs.sa-east-1.amazonaws.com
+                - logs.ca-central-1.amazonaws.com
                 - logs.ap-southeast-1.amazonaws.com
                 - logs.ap-southeast-2.amazonaws.com
-                - logs.ap-northeast-1.amazonaws.com
-                - logs.ca-central-1.amazonaws.com
                 - logs.eu-central-1.amazonaws.com
-                - logs.eu-west-1.amazonaws.com
-                - logs.eu-west-2.amazonaws.com
-                - logs.eu-west-3.amazonaws.com
-                - logs.sa-east-1.amazonaws.com
+                - logs.us-east-1.amazonaws.com
+                - logs.us-east-2.amazonaws.com
+                - logs.us-west-1.amazonaws.com
+                - logs.us-west-2.amazonaws.com
             Action:                'sts:AssumeRole'
       Path:                        '/'
-  CWLtoKinesisPolicy:
+  CWLtoFirehosePolicy:
     Type:                          'AWS::IAM::Policy'
     Properties:
       PolicyName:                  CWL_to_Kinesis_Policy
@@ -49,16 +51,16 @@ Resources:
         Statement:
           - Effect:                Allow
             Action:
-              - 'kinesis:PutRecord'
+              - 'firehose:PutRecord'
             Resource:
-              - !GetAtt            'KinesisLoggingStream.Arn'
+              - !GetAtt            'FirehoseLoggingDeliveryStream.Arn'
           - Effect:                Allow
             Action:
               - 'iam:PassRole'
             Resource:
-              - !GetAtt           'CWLtoKinesisRole.Arn'
+              - !GetAtt           'CWLtoFirehoseRole.Arn'
       Roles:
-        - !Ref                    CWLtoKinesisRole
+        - !Ref                    CWLtoFirehoseRole
   FirehoseDeliveryRole:
     Type:                          'AWS::IAM::Role'
     Properties:
@@ -94,47 +96,30 @@ Resources:
                 - ''
                 - - !Ref LoggingS3Bucket
                   - '*'
-          - Effect:               Allow
-            Action:
-              - 'kinesis:DescribeStream'
-              - 'kinesis:GetShardIterator'
-              - 'kinesis:GetRecords'
-            Resource:             !GetAtt 'KinesisLoggingStream.Arn'
       Roles:
         - !Ref FirehoseDeliveryRole
   # Log Destination
   LogDestination:
     Type:                         AWS::Logs::Destination
     DependsOn:
-      - KinesisLoggingStream
-      - CWLtoKinesisRole
-      - CWLtoKinesisPolicy
+      - FirehoseLoggingDeliveryStream
+      - CWLtoFirehoseRole
+      - CWLtoFirehosePolicy
     Properties:
       DestinationName:            CentralLogDestination
-      RoleArn:                    !GetAtt 'CWLtoKinesisRole.Arn'
-      TargetArn:                  !GetAtt 'KinesisLoggingStream.Arn'
-      DestinationPolicy: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"<AccountNumberHere>\",\"<AccountNumberHere>\",\"<AccountNumberHere>\",\"<AccountNumberHere>\",\"<AccountNumberHere>\"]},\"Action\":\"logs:PutSubscriptionFilter\",\"Resource\":\"arn:aws:logs:<region>:<logging account number>:destination:CentralLogDestination\"}]}"
-  # Kinesis
-  KinesisLoggingStream:
-    Type:                         AWS::Kinesis::Stream
-    Properties:
-      Name:                       'Kinesis-Centralized-Logging-Stream'
-      RetentionPeriodHours:       48
-      ShardCount:                 2
+      RoleArn:                    !GetAtt 'CWLtoFirehoseRole.Arn'
+      TargetArn:                  !GetAtt 'FirehoseLoggingDeliveryStream.Arn'
+      DestinationPolicy: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"075669627583\",\"613399733590\"]},\"Action\":\"logs:PutSubscriptionFilter\",\"Resource\":\"arn:aws:logs:us-east-1:613399733590:destination:CentralLogDestination\"}]}"
   # Firehose
   FirehoseLoggingDeliveryStream:
     Type:                                 'AWS::KinesisFirehose::DeliveryStream'
     DependsOn:
-      - KinesisLoggingStream
       - FirehoseDeliveryRole
       - FirehoseDeliveryPolicy
     Properties:
       DeliveryStreamName:                 'Centralized-Logging-Delivery-Stream'
-      DeliveryStreamType:                  KinesisStreamAsSource
-      KinesisStreamSourceConfiguration:
-        KinesisStreamARN:                 !GetAtt 'KinesisLoggingStream.Arn'
-        RoleARN:                          !GetAtt 'FirehoseDeliveryRole.Arn'
-      ExtendedS3DestinationConfiguration:
+      DeliveryStreamType:                  DirectPut
+      S3DestinationConfiguration:
         BucketARN:                        !Ref LoggingS3Bucket
         BufferingHints:
           IntervalInSeconds:              '300'
