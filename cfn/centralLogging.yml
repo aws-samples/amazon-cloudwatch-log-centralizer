@@ -109,7 +109,7 @@ Resources:
       DestinationName:            CentralLogDestination
       RoleArn:                    !GetAtt 'CWLtoFirehoseRole.Arn'
       TargetArn:                  !GetAtt 'FirehoseLoggingDeliveryStream.Arn'
-      DestinationPolicy: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"075669627583\",\"613399733590\"]},\"Action\":\"logs:PutSubscriptionFilter\",\"Resource\":\"arn:aws:logs:us-east-1:613399733590:destination:CentralLogDestination\"}]}"
+      DestinationPolicy: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"<AccountNumberHere>\",\"<AccountNumberHere>\",\"<AccountNumberHere>\",\"<AccountNumberHere>\",\"<AccountNumberHere>\"]},\"Action\":\"logs:PutSubscriptionFilter\",\"Resource\":\"arn:aws:logs:<region>:<logging account number>:destination:CentralLogDestination\"}]}"
   # Firehose
   FirehoseLoggingDeliveryStream:
     Type:                                 'AWS::KinesisFirehose::DeliveryStream'
